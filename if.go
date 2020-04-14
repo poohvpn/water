@@ -14,6 +14,7 @@ type Interface struct {
 	isTAP bool
 	io.ReadWriteCloser
 	name string
+	fd   uintptr
 }
 
 // DeviceType is the type for specifying device types.
@@ -21,8 +22,7 @@ type DeviceType int
 
 // TUN and TAP device types.
 const (
-	_ = iota
-	TUN
+	TUN = iota
 	TAP
 )
 
@@ -39,23 +39,9 @@ type Config struct {
 	PlatformSpecificParams
 }
 
-func defaultConfig() Config {
-	return Config{
-		DeviceType:             TUN,
-		PlatformSpecificParams: defaultPlatformSpecificParams(),
-	}
-}
-
-var zeroConfig Config
-
 // New creates a new TUN/TAP interface using config.
 func New(config Config) (ifce *Interface, err error) {
-	if zeroConfig == config {
-		config = defaultConfig()
-	}
-	if config.PlatformSpecificParams == zeroConfig.PlatformSpecificParams {
-		config.PlatformSpecificParams = defaultPlatformSpecificParams()
-	}
+	config.PlatformSpecificParams = defaultPlatformSpecificParams.baseOn(config.PlatformSpecificParams)
 	switch config.DeviceType {
 	case TUN, TAP:
 		return openDev(config)
@@ -77,4 +63,8 @@ func (ifce *Interface) IsTAP() bool {
 // Name returns the interface name of ifce, e.g. tun0, tap1, tun0, etc..
 func (ifce *Interface) Name() string {
 	return ifce.name
+}
+
+func (ifce *Interface) FD() uintptr {
+	return ifce.fd
 }

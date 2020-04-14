@@ -151,6 +151,7 @@ func openDevSystem(config Config) (ifce *Interface, err error) {
 		ReadWriteCloser: &tunReadCloser{
 			f: os.NewFile(uintptr(fd), string(ifName.name[:])),
 		},
+		fd: uintptr(fd),
 	}, nil
 }
 
@@ -204,7 +205,12 @@ func openDevTunTapOSX(config Config) (ifce *Interface, err error) {
 		isTAP:           config.DeviceType == TAP,
 		ReadWriteCloser: os.NewFile(uintptr(fd), "tun"),
 		name:            config.Name,
+		fd:              uintptr(fd),
 	}, nil
+}
+
+func setNonBlock(fd int) error {
+	return syscall.SetNonblock(fd, true)
 }
 
 // tunReadCloser is a hack to work around the first 4 bytes "packet

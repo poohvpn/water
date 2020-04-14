@@ -77,13 +77,13 @@ sudo go run main.go
 In a new terminal:
 
 ```bash
-sudo ip addr add 10.1.0.10/24 dev O_O
+sudo ip addr add 192.168.56.2/24 dev O_O
 sudo ip link set dev O_O up
 ```
 
 Wait until the output `main.go` terminal, try sending some ICMP broadcast message:
 ```bash
-ping -c1 -b 10.1.0.255
+ping -c1 -b 192.168.56.3
 ```
 
 You'll see output containing the IPv4 ICMP frame:
@@ -135,13 +135,13 @@ $ sudo go run main.go
 This is a point-to-point only interface. Use `ifconfig` to see its attributes. You need to bring it up and assign IP addresses (apparently replace `utun2` if needed):
 
 ```bash
-$ sudo ifconfig utun2 10.1.0.10 10.1.0.20 up
+$ sudo ifconfig utun2 192.168.56.2 192.168.56.3 up
 ```
 
 Now send some ICMP packets to the interface:
 
 ```bash
-$ ping 10.1.0.20
+$ ping 192.168.56.3
 ```
 
 You'd see the ICMP packets printed out:
@@ -209,13 +209,13 @@ In a new cmd (admin right):
 
 ```dos
 # Replace with your device name, it can be achieved by ifce.Name().
-netsh interface ip set address name="Ehternet 2" source=static addr=10.1.0.10 mask=255.255.255.0 gateway=none
+netsh interface ip set address name="Ehternet 2" source=static addr=192.168.56.2 mask=255.255.255.0 gateway=none
 ```
 
 The `main.go` terminal should be silenced after IP assignment, try sending some ICMP broadcast message:
 
 ```dos
-ping 10.1.0.255
+ping 192.168.56.3
 ```
 
 You'll see output containing the IPv4 ICMP frame same as the Linux version.
@@ -230,10 +230,159 @@ If you are going to use multiple TAP devices on the Windows, there is a way to s
 		PlatformSpecificParams: water.PlatformSpecificParams{
 			ComponentID:   "tap0901",
 			InterfaceName: "Ethernet 3",
-			Network:       "192.168.1.10/24",
 		},
 	})
 ```
+
+### TUN on Windows:
+
+To use it with windows, you will need to install a [tap driver](https://github.com/OpenVPN/tap-windows6), or [OpenVPN client](https://github.com/OpenVPN/openvpn) for windows.
+
+#### Static mode
+```go
+package main
+
+import (
+	"github.com/songgao/water"
+	"fmt"
+	"log"
+	"net"
+)
+
+func main() {
+	config:=water.Config{
+		DeviceType: water.TUN,
+		PlatformSpecificParams: water.PlatformSpecificParams{
+			ComponentID: "tap0901",
+			Network:     "192.168.56.2/24",
+		}}
+	ifce, err := water.New(config)
+	if err != nil {
+		log.Fatal(err)
+	}
+	recvBuf:=make([]byte,1500)
+
+	for {
+		n, err := ifce.Read(recvBuf)
+		if err != nil {
+			log.Fatal(err)
+		}
+		switch recvBuf[0] >> 4 {
+		case 4:
+			fmt.Printf("IPv4 %s -> %s packet %x\n",
+				net.IPv4(recvBuf[12],recvBuf[13],recvBuf[14],recvBuf[15]),
+				net.IPv4(recvBuf[16],recvBuf[17],recvBuf[18],recvBuf[19]),
+				recvBuf[:n])
+		case 6:
+			//break to ignore ipv6 packet
+			ipv6IPsrc:=make(net.IP,16)
+			ipv6IPdst:=make(net.IP,16)
+			copy(ipv6IPsrc,recvBuf[8:24])
+			copy(ipv6IPdst,recvBuf[24:40])
+			fmt.Printf("IPv6 %s -> %s packet %x\n",
+			ipv6IPsrc,
+			ipv6IPdst,
+			recvBuf[:n],
+			)
+		}
+	}
+}
+```
+
+Run as Administrator:
+```dos
+go run main.go
+```
+
+Start a new Administrator cmd to assign static IP for device:
+
+```dos
+# Replace with your device name, it can be achieved by ifce.Name().
+netsh interface ip set address name="Ehternet 2" source=static addr=192.168.56.2 mask=255.255.255.0 gateway=none
+```
+
+In oreder to see IPv4 packets, you should ping a IP in network, e.g. 192.168.56.3:
+```dos
+ping 192.168.56.3
+```
+
+You'll see output containing the IPv4 ICMP packets.
+
+#### DHCP mode
+```go
+package main
+
+import (
+	"fmt"
+	"github.com/songgao/water"
+	"log"
+	"net"
+)
+
+func main() {
+	// DHCPServer, Dns1 and Dn2 can be empty.
+	config := water.Config{
+		DeviceType: water.TUN,
+		PlatformSpecificParams: water.PlatformSpecificParams{
+			ComponentID: "tap0901",
+			Network:     "192.168.56.2/24",
+			IsDHCP:      true,
+			DHCPServer:  "192.168.56.1",
+			DNS1:        "8.8.8.8",
+			DNS2:        "1.1.1.1",
+		}}
+	ifce, err := water.New(config)
+	if err != nil {
+		log.Fatal(err)
+	}
+	recvBuf := make([]byte, 1500)
+
+	for {
+		n, err := ifce.Read(recvBuf)
+		if err != nil {
+			log.Fatal(err)
+		}
+		switch recvBuf[0] >> 4 {
+		case 4:
+			fmt.Printf("IPv4 %s -> %s packet %x\n",
+				net.IPv4(recvBuf[12], recvBuf[13], recvBuf[14], recvBuf[15]),
+				net.IPv4(recvBuf[16], recvBuf[17], recvBuf[18], recvBuf[19]),
+				recvBuf[:n])
+		case 6:
+			//break to ignore ipv6 packet
+			ipv6IPsrc := make(net.IP, 16)
+			ipv6IPdst := make(net.IP, 16)
+			copy(ipv6IPsrc, recvBuf[8:24])
+			copy(ipv6IPdst, recvBuf[24:40])
+			fmt.Printf("IPv6 %s -> %s packet %x\n",
+				ipv6IPsrc,
+				ipv6IPdst,
+				recvBuf[:n],
+			)
+		}
+	}
+}
+```
+
+Run as Administrator:
+```dos
+go run main.go
+```
+
+Start a new Administrator cmd to configure device work on DHCP mode:
+
+```dos
+# Replace with your device name, it can be achieved by ifce.Name().
+netsh interface ip set address "Ehternet 2" dhcp
+netsh interface ip set dns "Ehteret 2" dhcp
+```
+
+In oreder to see IPv4 packets, you should ping a IP in network, e.g. 192.168.56.3:
+```dos
+ping 192.168.56.3
+```
+
+You'll see output containing the IPv4 ICMP packets.
 
 ## TODO
 * tuntaposx for TAP on Darwin
